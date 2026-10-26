@@ -11,7 +11,7 @@ import { escapeRegExp } from '../utils';
 import { UnresolvedRef, ResolvedRef, ResolutionContext, ImportMapping, isSupertypeTarget, CPP_DEFINE_SIGNATURE, isInheritanceRef, isImportableKind } from './types';
 import { blankStringContents, stripCommentsForRegex } from './strip-comments';
 import { isJsSuperCallSite } from './js-super-calls';
-import { JS_ARRAY_METHODS, JS_BUILT_INS, JS_BUILTIN_METHODS, TS_PRIMITIVE_TYPES } from './js-builtins';
+import { JS_ARRAY_METHODS, JS_BUILT_INS, JS_BUILTIN_METHODS, JS_BROWSER_GLOBALS, TS_PRIMITIVE_TYPES } from './js-builtins';
 import { SWIFT_TYPE_PATH_CALL, resolveSwiftTypePathCall } from './swift-type-visibility';
 import { dartImportPrefixes, dartLibrarySees, dartPrefixSees, dartPrivateVisible, inSameDartLibrary } from './dart-libraries';
 import { isDartLocallyBound } from './dart-local-scope';
@@ -21684,6 +21684,15 @@ export function matchMethodCall(
   if (ref.referenceKind === 'calls' && JS_FAMILY.has(ref.language) &&
       objectOrClass !== 'this' && objectOrClass !== 'super' &&
       JS_BUILTIN_METHODS.has(methodName!)) return null;
+
+  // A receiver on a browser global (window, document, localStorage, sessionStorage,
+  // location, history, navigator, screen, performance, globalThis) calls a browser
+  // API, not an instance method of a same-named project service (#2907).
+  if (ref.referenceKind === 'calls' && JS_FAMILY.has(ref.language) &&
+      JS_BROWSER_GLOBALS.has(objectOrClass!) &&
+      !context.getNodesByName(objectOrClass!).some((n) => n.language === ref.language)) {
+    return null;
+  }
 
   // A receiver the file imports is past guessing. A namespace import is the
   // module object, whose members are its exports, never some class's method;

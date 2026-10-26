@@ -1,10 +1,17 @@
 /** Shared JS/TS built-ins for direct references and inferred receiver types. */
 export const JS_BUILT_INS = new Set([
-  'console', 'window', 'document', 'global', 'process',
+  'console', 'window', 'document', 'global', 'process', 'globalThis',
+  'localStorage', 'sessionStorage', 'location', 'history', 'navigator', 'screen', 'performance',
   'Promise', 'Array', 'Object', 'String', 'Number', 'Boolean',
   'Date', 'Math', 'JSON', 'RegExp', 'Error', 'Map', 'Set', 'WeakMap', 'WeakSet',
   'setTimeout', 'setInterval', 'clearTimeout', 'clearInterval',
   'fetch', 'require', 'module', 'exports', '__dirname', '__filename',
+]);
+
+/** Browser / host globals whose methods are browser APIs, not un-annotated project methods (#2907). */
+export const JS_BROWSER_GLOBALS = new Set([
+  'window', 'document', 'globalThis', 'localStorage', 'sessionStorage',
+  'location', 'history', 'navigator', 'screen', 'performance',
 ]);
 
 /** Method names that require receiver evidence before linking to project code. */
@@ -31,6 +38,10 @@ export const JS_BUILTIN_METHODS = new Set([
   'next', 'return', 'throw', 'drop', 'take', 'toArray',
   // fetch's Response / Request / Blob bodies.
   'text', 'json', 'arrayBuffer', 'blob', 'formData',
+  // DOM / Window / Storage / History / Location (#2907).
+  'open', 'close', 'alert', 'confirm', 'prompt', 'postMessage',
+  'getItem', 'setItem', 'removeItem',
+  'reload', 'back', 'forward', 'go', 'pushState', 'replaceState',
 ]);
 
 /**
