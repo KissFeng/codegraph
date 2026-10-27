@@ -13371,7 +13371,17 @@ const HOST_GLOBAL_RECEIVER =/(?:^|[^\w$.])(window|globalThis)\s*\??\.\s*([A-Za-z
  * is tried first. Undefined when the call is neither, or no such owner has the
  * member (the bare-name strategies then run as before).
  */
-export function matchCollapsedObjectCall(ref: UnresolvedRef, context: ResolutionContext): ResolvedRef | undefined {
+/** Whether a JS/TS name refers to a project symbol accessible at `ref` (#2907). */
+function isProjectJsGlobal(name: string, ref: UnresolvedRef, context: ResolutionContext): boolean {
+  if (isLocallyBoundJsName(name, ref.filePath, context)) return true;
+  if (context.getImportMappings(ref.filePath, ref.language)?.some((m) => m.localName === name)) return true;
+  return context.getNodesByName(name).some((n) =>
+    sameLanguageFamily(n.language, ref.language) &&
+    (n.filePath === ref.filePath || n.isExported)
+  );
+}
+
+export function matchCollapsedObjectCall(ref: UnresolvedRef, context: ResolutionContext): ResolvedRef | null | undefined {
   if (ref.referenceKind !== 'calls' || !JS_FAMILY.has(ref.language) || !/^[A-Za-z_$][\w$]*$/.test(ref.referenceName)) return undefined;
   // A call written bare starts with its own name and `(`: no receiver to read.
   const line = (context.getFileLines?.(ref.filePath) ?? context.readFile(ref.filePath)?.split(/\r?\n/))?.[ref.line - 1];
@@ -13388,11 +13398,18 @@ export function matchCollapsedObjectCall(ref: UnresolvedRef, context: Resolution
     const caller = context.getNodeById?.(ref.fromNodeId);
     const owner = caller ? thisObjectOf(caller, context) : null;
     const hit = owner ? resolveObjectLiteralMember(owner, ref.referenceName, ref, context, 0.85, 'instance-method') : null;
-    return hit ?? undefined;
+    if (hit) return hit;
+    if (!isProjectJsGlobal('self', ref, context)) return null;
+    return undefined;
   }
   const host = HOST_GLOBAL_RECEIVER.exec(written.receiver);
   if (!host) return undefined;
-  return resolveObjectPathMember(host[2]!.replace(/[\s?]/g, ''), ref.referenceName, ref, context, host[1]!) ?? undefined;
+  const path = host[2]!.replace(/[\s?]/g, '');
+  const root = path.split('.')[0]!;
+  if (JS_BROWSER_GLOBALS.has(root) && !isProjectJsGlobal(root, ref, context)) {
+    return null;
+  }
+  return resolveObjectPathMember(path, ref.referenceName, ref, context, host[1]!) ?? undefined;
 }
 
 /**
@@ -21685,12 +21702,14 @@ export function matchMethodCall(
       objectOrClass !== 'this' && objectOrClass !== 'super' &&
       JS_BUILTIN_METHODS.has(methodName!)) return null;
 
-  // A receiver on a browser global (window, document, localStorage, sessionStorage,
+  // A receiver on a browser global (window, self, document, localStorage, sessionStorage,
   // location, history, navigator, screen, performance, globalThis) calls a browser
   // API, not an instance method of a same-named project service (#2907).
+  const bareReceiver = objectOrClass!.replace(/^(?:window|self|globalThis)\./, '');
   if (ref.referenceKind === 'calls' && JS_FAMILY.has(ref.language) &&
-      JS_BROWSER_GLOBALS.has(objectOrClass!) &&
-      !context.getNodesByName(objectOrClass!).some((n) => n.language === ref.language)) {
+      JS_BROWSER_GLOBALS.has(bareReceiver) &&
+      !isProjectJsGlobal(objectOrClass!, ref, context) &&
+      !isProjectJsGlobal(bareReceiver, ref, context)) {
     return null;
   }
 
@@ -28972,7 +28991,7 @@ function matchReferenceInner(
   // `window.App.init()` / a sibling's `this.init()`, recorded by the bare
   // name: the object they are written on comes first (#2300).
   const collapsed = matchCollapsedObjectCall(ref, context);
-  if (collapsed) return collapsed;
+  if (collapsed !== undefined) return collapsed;
 
   // A Swift call through a type path (`API.PackageController.GetRoute.query`)
   // resolves on the type the path names, or not at all: the strategies below
